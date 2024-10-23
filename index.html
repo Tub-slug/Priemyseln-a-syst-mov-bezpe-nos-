@@ -1,0 +1,242 @@
+<!DOCTYPE html>
+<html lang="en">
+<head>
+    <meta charset="UTF-8">
+    <meta name="viewport" content="width=device-width, initial-scale=1.0">
+    <title>Multi-Sensor Monitor</title>
+    <style>
+        body {
+            font-family: Arial, sans-serif;
+            background-color: #f4f4f4;
+            padding: 20px;
+        }
+
+        .sensor-container {
+            display: flex;
+            flex-wrap: wrap;
+            gap: 20px;
+        }
+
+        .sensor {
+            background: #fff;
+            padding: 15px;
+            border-radius: 8px;
+            box-shadow: 0 2px 4px rgba(0, 0, 0, 0.1);
+            width: 200px;
+            text-align: center;
+        }
+
+        h1, h2 {
+            color: #333;
+        }
+
+        /* Style for the alarm icon */
+        #alarmIcon {
+            font-size: 50px;
+            color: grey;
+        }
+
+        /* Alarm active (turns red when buzzer is activated) */
+        .alarm-active {
+            color: red;
+        }
+
+        /* Code display area */
+        .code-display {
+            font-size: 24px;
+            margin-top: 10px;
+            letter-spacing: 10px;
+        }
+
+        /* Highlight for the active digit */
+        .active-digit {
+            color: blue;
+            font-weight: bold;
+        }
+    </style>
+    <script src="https://cdn.jsdelivr.net/npm/chart.js"></script>
+</head>
+<body>
+    <h1>Real-time Sensor Data</h1>
+    
+    <h2></h2>
+    <div id="alarmIcon"></div>  <!-- Alarm icon -->
+
+    <div class="sensor-container">
+        <div class="sensor">
+            <h3>Temperature (°C)</h3>
+            <canvas id="tempChart" width="200" height="100"></canvas>
+        </div>
+
+        <div class="sensor">
+            <h3>Humidity (%)</h3>
+            <canvas id="humidityChart" width="200" height="100"></canvas>
+        </div>
+
+        <div class="sensor">
+            <h3>Sound Level</h3>
+            <canvas id="soundChart" width="200" height="100"></canvas>
+        </div>
+
+        <div class="sensor">
+            <h3>Water Sensor</h3>
+            <div id="waterStatus">No data</div>
+        </div>
+
+        <div class="sensor">
+            <h3>Motion Sensor 1</h3>
+            <div id="motionStatus1">No data</div>
+        </div>
+
+        <div class="sensor">
+            <h3>Motion Sensor 2</h3>
+            <div id="motionStatus2">No data</div>
+        </div>
+
+        <div class="sensor">
+            <h3>Vibration Sensor</h3>
+            <div id="vibrationStatus">No data</div>
+        </div>
+
+        <div class="sensor">
+            <h3>Code Entered</h3>
+            <div class="code-display" id="codeDisplay">
+                <span id="digit-0">0</span>
+                <span id="digit-1">0</span>
+                <span id="digit-2">0</span>
+                <span id="digit-3">0</span>
+            </div>
+            <div id="codeStatus">No match</div>
+        </div>
+    </div>
+
+    <script src="/socket.io/socket.io.js"></script>
+    <script>
+        // Initial 4-digit code display
+        let codeArray = ['0', '0', '0', '0'];  // Represent the code as an array of digits
+
+        // Charts setup
+        var tempChart = createChart('tempChart', 'Temperature (°C)');
+        var humidityChart = createChart('humidityChart', 'Humidity (%)');
+        var soundChart = createChart('soundChart', 'Sound Level');
+
+        function createChart(id, label) {
+            var ctx = document.getElementById(id).getContext('2d');
+            return new Chart(ctx, {
+                type: 'line',
+                data: {
+                    labels: [],
+                    datasets: [{
+                        label: label,
+                        data: [],
+                        borderColor: 'rgba(75, 192, 192, 1)',
+                        borderWidth: 1,
+                        fill: false
+                    }]
+                },
+                options: {
+                    scales: {
+                        x: {
+                            type: 'linear',
+                            title: { display: true, text: 'Time (s)' }
+                        },
+                        y: {
+                            beginAtZero: false
+                        }
+                    }
+                }
+            });
+        }
+
+        // Fetch the sensor data from the server every 1 second
+        setInterval(fetchSensorData, 1000);
+
+        function fetchSensorData() {
+            fetch('/sensor-data')
+                .then(response => response.json())
+                .then(data => {
+                    updateUI(data);
+                })
+                .catch(error => console.error('Error fetching sensor data:', error));
+        }
+
+        function updateUI(data) {
+            var time = tempChart.data.labels.length;
+
+            // Update charts with new data
+            tempChart.data.labels.push(time);
+            tempChart.data.datasets[0].data.push(data.temperature);
+            tempChart.update();
+
+            humidityChart.data.labels.push(time);
+            humidityChart.data.datasets[0].data.push(data.humidity);
+            humidityChart.update();
+
+            soundChart.data.labels.push(time);
+            soundChart.data.datasets[0].data.push(data.soundValue);
+            soundChart.update();
+
+            // Update water and motion statuses
+            document.getElementById('waterStatus').innerText = data.waterValue > 600 ? "Water detected!" : "No water detected.";
+            document.getElementById('motionStatus1').innerText = data.motionState1 ? "Movement detected." : "No movement.";
+            document.getElementById('motionStatus2').innerText = data.motionState2 ? "Movement detected." : "No movement.";
+            document.getElementById('vibrationStatus').innerText = data.vibrationState ? "No vibration." : "Vibration Detected!";
+
+            // Update the code display based on currentNumber and currentIndex
+            updateCodeDisplay(data.currentNumber, data.currentIndex);
+
+            // Update code status
+            if (data.codeMatched) {
+                document.getElementById('codeStatus').innerText = "Correct Code Entered!";
+                resetCodeDisplay(); // Reset to 0000 on correct code
+            } else {
+                document.getElementById('codeStatus').innerText = "Incorrect Code.";
+            }
+
+            // Update alarm icon based on buzzer condition
+            const alarmIcon = document.getElementById('alarmIcon');
+            if (data.vibrationState || data.waterValue > 600 || data.motionState1 || data.motionState2) {
+                alarmIcon.classList.add('alarm-active');
+            } else {
+                alarmIcon.classList.remove('alarm-active');
+            }
+        }
+
+        function updateCodeDisplay(currentNumber, currentIndex) {
+            // Ensure currentNumber is a valid digit (0-9) and currentIndex is in range (0-3)
+            if (currentIndex >= 0 && currentIndex <= 3 && currentNumber >= 0 && currentNumber <= 9) {
+                // Update the corresponding digit in the code array
+                codeArray[currentIndex] = currentNumber.toString();
+            }
+
+            // Update each digit display and apply highlight for the current index
+            for (let i = 0; i < 4; i++) {
+                const digitElement = document.getElementById(`digit-${i}`);
+                digitElement.innerText = codeArray[i];
+
+                // Highlight the active digit (currently being updated)
+                if (i === currentIndex) {
+                    digitElement.classList.add('active-digit');
+                } else {
+                    digitElement.classList.remove('active-digit');
+                }
+            }
+	    if(currentIndex == 0 && currentNumber == 0){
+	        codeArray = ['0', '0', '0', '0'];
+	    }
+        }
+
+        function resetCodeDisplay() {
+            // Reset the code to 0000
+            codeArray = ['0', '0', '0', '0'];
+
+            // Update the display and remove any active highlights
+            for (let i = 0; i < 4; i++) {
+                const digitElement = document.getElementById(`digit-${i}`);
+                digitElement.innerText = '0';
+                digitElement.classList.remove('active-digit');
+            }
+        }
+    </script>
+</body>
+</html>
