@@ -84,7 +84,9 @@ void loop() {
  
   buttonBState = digitalRead(buttonBPin);
   if (buttonBState == HIGH && lastButtonBState == LOW) {
-    enteredCode[currentIndex] = currentNumber;  
+    enteredCode[currentIndex] = currentNumber; 
+    currentNumber = 0;
+	 
 
     
     currentIndex++; 
